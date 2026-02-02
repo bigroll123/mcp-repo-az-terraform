@@ -2,7 +2,7 @@
   "mcpServers": {
     "mslearn-apim": {
       "type": "streamable-http",
-      "url": "https://apim-mcp-u4ecju.azure-api.net/mslearn?subscription-key=fbc118cc289d454c9b3a3531f1587672",
+      "url": "https://apim-mcp-u4ecju.azure-api.net/mslearn?subscription-key=key-here",
       "disabled": false
     }
   }
