@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "mslearn-apim": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://apim-mcp-u4ecju.azure-api.net/mslearn/?subscription-key=key-here",
+        "--transport",
+        "http-only"
+      ]
+    }
+  }
+}
+
