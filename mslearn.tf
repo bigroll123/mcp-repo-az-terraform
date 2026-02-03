@@ -1,4 +1,4 @@
-# --- 1. APIM API Configuration ---
+# --- 1. APIM API PROXY ---
 resource "azurerm_api_management_api" "mslearn_proxy" {
   name                = "mslearn-mcp"
   resource_group_name = azurerm_resource_group.rg.name
@@ -10,13 +10,31 @@ resource "azurerm_api_management_api" "mslearn_proxy" {
   service_url         = "https://learn.microsoft.com/api/mcp"
   subscription_required = true
 
-  subscription_key_parameter_names {
-    query  = "subscription-key"
-    header = "Ocp-Apim-Subscription-Key"
+  import {
+    content_format = "openapi"
+    content_value  = jsonencode({
+      openapi = "3.0.1"
+      info = {
+        title       = "MSLearn MCP Proxy"
+        version     = "1.0"
+        description = "MCP-compliant gateway for Microsoft Learn documentation tools."
+      }
+      paths = {
+        "/mcp" = {
+          post = {
+            operationId = "mcp-rpc-handler"
+            summary     = "MCP JSON-RPC Gateway"
+            responses   = { "200" = { description = "Success" } }
+          }
+        }
+      }
+    })
   }
 }
 
-resource "azurerm_api_management_api_policy" "mcp_policy" {
+# --- 2. AUTHENTICATION POLICY ---
+# This injects the Managed Identity token so APIM can talk to the backend securely
+resource "azurerm_api_management_api_policy" "mcp_auth_policy" {
   api_name            = azurerm_api_management_api.mslearn_proxy.name
   api_management_name = azurerm_api_management.apim.name
   resource_group_name = azurerm_resource_group.rg.name
@@ -25,54 +43,37 @@ resource "azurerm_api_management_api_policy" "mcp_policy" {
 <policies>
     <inbound>
         <base />
-        <set-backend-service base-url="https://learn.microsoft.com/api/mcp" />
+        <authentication-managed-identity 
+            resource="https://management.azure.com/" 
+            client-id="${azurerm_user_assigned_identity.mcp_identity.client_id}" 
+            output-token-variable-name="msi-access-token" 
+            ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + context.Variables.GetValueOrDefault<string>("msi-access-token"))</value>
+        </set-header>
     </inbound>
     <backend>
-        <forward-request timeout="240" buffer-response="false" fail-on-error-status-code="true" />
+        <base />
     </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
 </policies>
 XML
 }
 
-# --- 2. API Operations ---
-resource "azurerm_api_management_api_operation" "streamable" {
-  operation_id        = "post-root"
-  api_name            = azurerm_api_management_api.mslearn_proxy.name
-  api_management_name = azurerm_api_management.apim.name
-  resource_group_name = azurerm_resource_group.rg.name
-  display_name        = "Streamable HTTP"
-  method              = "POST"
-  url_template        = "/"
-}
-
-resource "azurerm_api_management_api_operation" "sse" {
-  operation_id        = "get-sse"
-  api_name            = azurerm_api_management_api.mslearn_proxy.name
-  api_management_name = azurerm_api_management.apim.name
-  resource_group_name = azurerm_resource_group.rg.name
-  display_name        = "SSE Connection"
-  method              = "GET"
-  url_template        = "/sse"
-}
-
-resource "azurerm_api_management_api_operation" "messages" {
-  operation_id        = "post-messages"
-  api_name            = azurerm_api_management_api.mslearn_proxy.name
-  api_management_name = azurerm_api_management.apim.name
-  resource_group_name = azurerm_resource_group.rg.name
-  display_name        = "Post Messages"
-  method              = "POST"
-  url_template        = "/messages"
-}
-
-# --- 3. Access Control ---
+# --- 3. PRODUCT & SUBSCRIPTION ---
 resource "azurerm_api_management_product" "mcp_product" {
-  product_id          = "mcp"
-  api_management_name = azurerm_api_management.apim.name
-  resource_group_name = azurerm_resource_group.rg.name
-  display_name        = "MCP Product"
-  published             = true
+  product_id            = "mcp-suite"
+  api_management_name   = azurerm_api_management.apim.name
+  resource_group_name   = azurerm_resource_group.rg.name
+  display_name          = "AI Agent MCP Suite"
   subscription_required = true
+  approval_required     = false
+  published             = true
 }
 
 resource "azurerm_api_management_product_api" "mcp_product_api" {
@@ -82,100 +83,67 @@ resource "azurerm_api_management_product_api" "mcp_product_api" {
   api_name            = azurerm_api_management_api.mslearn_proxy.name
 }
 
-resource "azurerm_api_management_user" "mcp_user" {
-  api_management_name = azurerm_api_management.apim.name
-  resource_group_name = azurerm_resource_group.rg.name
-  user_id             = "mcp-test-user"
-  first_name          = "MCP"
-  last_name           = "Client"
-  email               = var.apim_user_email
-  state               = "active"
-}
-
 resource "azurerm_api_management_subscription" "mcp_sub" {
   api_management_name = azurerm_api_management.apim.name
   resource_group_name = azurerm_resource_group.rg.name
-  display_name        = "MCP-Roo-Key"
-  state               = "active"
+  display_name        = "MCP Access Key"
   product_id          = azurerm_api_management_product.mcp_product.id
-  user_id             = azurerm_api_management_user.mcp_user.id
+  state               = "active"
 }
 
-# --- 4. API Center Registration (Stability Fix) ---
-resource "azapi_resource" "schema_vendor" {
-  type      = "Microsoft.ApiCenter/services/metadataSchemas@2024-03-01"
-  name      = "vendor"
-  parent_id = azapi_resource.apic.id
-  body = { properties = { schema = jsonencode({ type = "string", title = "Vendor" }), assignedTo = [{ entity = "api" }] } }
-}
-
-resource "azapi_resource" "schema_category" {
-  type      = "Microsoft.ApiCenter/services/metadataSchemas@2024-03-01"
-  name      = "category"
-  parent_id = azapi_resource.apic.id
-  body = { properties = { schema = jsonencode({ type = "string", title = "Category" }), assignedTo = [{ entity = "api" }] } }
-}
-
-resource "azapi_resource" "schema_visibility" {
-  type      = "Microsoft.ApiCenter/services/metadataSchemas@2024-03-01"
-  name      = "visibility"
-  parent_id = azapi_resource.apic.id
-  body = { properties = { schema = jsonencode({ type = "string", title = "Visibility" }), assignedTo = [{ entity = "api" }] } }
-}
-
+# --- 4. API CENTER REGISTRATION (Discovery) ---
 resource "azapi_resource" "mcp_api_registration" {
-  type      = "Microsoft.ApiCenter/services/workspaces/apis@2024-03-01"
+  type      = "Microsoft.ApiCenter/services/workspaces/apis@2024-06-01-preview"
   name      = "mslearn-mcp-tool"
   parent_id = data.azapi_resource.default_workspace.id
   
-  depends_on = [
-    azapi_resource.schema_vendor, 
-    azapi_resource.schema_category, 
-    azapi_resource.schema_visibility
-  ]
-
   body = {
     properties = {
-      title = "Microsoft Learn MCP Server"
-      kind  = "Rest"
+      title       = "Microsoft Learn MCP Server"
+      kind        = "mcp"
+      description = "Official Microsoft Learn tools for AI agents."
       customProperties = {
-        vendor     = "Microsoft"
-        category   = "Education"
-        visibility = "true"
+        vendor = "Microsoft"
       }
     }
   }
-
-  # This helps skip the "identity" check that is failing
-  lifecycle {
-    ignore_changes = [body.identity]
-  }
+  depends_on = [azapi_resource.schema_vendor]
 }
 
 resource "azapi_resource" "api_version" {
-  type      = "Microsoft.ApiCenter/services/workspaces/apis/versions@2024-03-01"
-  name      = "vv1-0-01"
+  type      = "Microsoft.ApiCenter/services/workspaces/apis/versions@2024-06-01-preview"
+  name      = "v1-0-0"
   parent_id = azapi_resource.mcp_api_registration.id
-  body = { properties = { title = "v1", lifecycleStage = "Production" } }
+  body      = { properties = { title = "v1", lifecycleStage = "production" } }
 }
 
 resource "azapi_resource" "api_definition" {
-  type      = "Microsoft.ApiCenter/services/workspaces/apis/versions/definitions@2024-03-01"
-  name      = "openapi"
+  type      = "Microsoft.ApiCenter/services/workspaces/apis/versions/definitions@2024-06-01-preview"
+  name      = "mcp-openapi"
   parent_id = azapi_resource.api_version.id
-  body = { properties = { title = "OpenAPI Definition" } }
+  body = {
+    properties = {
+      title       = "MCP OpenAPI Spec"
+      description = "The technical specification for the MCP proxy."
+    }
+  }
 }
-
 resource "azapi_resource" "mcp_deployment" {
-  type      = "Microsoft.ApiCenter/services/workspaces/apis/deployments@2024-03-01"
+  type      = "Microsoft.ApiCenter/services/workspaces/apis/deployments@2024-06-01-preview"
   name      = "production-gateway"
   parent_id = azapi_resource.mcp_api_registration.id
   body = {
     properties = {
       title = "Production Secured Gateway"
-      environmentId = "/workspaces/default/environments/${azapi_resource.environment.name}"
-      definitionId  = "/workspaces/default/apis/${azapi_resource.mcp_api_registration.name}/versions/${azapi_resource.api_version.name}/definitions/${azapi_resource.api_definition.name}"
-      server        = { runtimeUri = ["${azurerm_api_management.apim.gateway_url}/mslearn"] }
+
+      environmentId = "/workspaces/${data.azapi_resource.default_workspace.name}/environments/${azapi_resource.environment.name}"
+
+      definitionId = "/workspaces/${data.azapi_resource.default_workspace.name}/apis/${azapi_resource.mcp_api_registration.name}/versions/${azapi_resource.api_version.name}/definitions/${azapi_resource.api_definition.name}"
+
+      server = {
+        runtimeUri = ["${azurerm_api_management.apim.gateway_url}/mslearn/mcp"]
+      }
+      state = "active"
     }
   }
 }

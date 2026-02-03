@@ -1,19 +1,27 @@
-variable "location" {
-  type = string
+variable "subscription_id" {
+  description = "The Azure Subscription ID."
+  type        = string
 }
 
 variable "resource_group_name" {
-  type = string
+  description = "The name of the resource group."
+  type        = string
+  default     = "rg-mcp-gateway"
+}
+
+variable "location" {
+  description = "The Azure region to deploy to."
+  type        = string
+  default     = "West Europe"
 }
 
 variable "publisher_name" {
-  type = string
+  description = "The name of your organization/publisher for APIM."
+  type        = string
+  default     = "Contoso AI"
 }
 
 variable "publisher_email" {
-  type = string
-}
-
-variable "apim_user_email" {
-  type = string
+  description = "The email address for APIM notifications."
+  type        = string
 }

@@ -1,5 +1,5 @@
 location            = "East US"
 resource_group_name = "rg-mcp-enterprise"
 publisher_name      = "MCP Admin"
-publisher_email     = "admin@contoso.com"
-apim_user_email     = "mcp-test-user@contoso.com"
+publisher_email     = "admin@mcp.com"
+subscription_id     = ""
