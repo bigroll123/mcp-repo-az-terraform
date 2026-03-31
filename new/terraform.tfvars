@@ -1,5 +1,5 @@
 location            = "East US"
 resource_group_name = "rg-mcp-enterprise"
 publisher_name      = "MCP Admin"
-publisher_email     = "admin@mcp.com"
-subscription_id     = "e057a240-19ad-4226-9354-ec7e062c8c57"
+publisher_email     = "admin@cb.com"
+apim_user_email     = "mcp-test-user@cb.com"
