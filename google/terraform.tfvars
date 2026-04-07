@@ -1,4 +1,4 @@
-project_id = "pioneering-flag-492313-g3"
-publisher_email = "kjkrumov@gmail.com"
-region = "europe-west1"
-
+project_id      = "my-gcp-project-123"          # Replace with your actual GCP project ID
+publisher_email = "api-owner@example.com"       # Email of the API publisher/owner
+region          = "europe-west1"                # Can be changed, e.g., us-central1
+apigee_env_name = "dev"                         # Existing Apigee environment name (reserved for future use)
