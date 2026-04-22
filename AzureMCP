@@ -1,0 +1,161 @@
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = ">= 4.0.0"
+    }
+    azapi = {
+      source  = "Azure/azapi"
+      version = ">= 2.4.0"
+    }
+  }
+}
+
+provider "azurerm" {
+  features {}
+}
+
+provider "azapi" {}
+
+############################################
+# VARIABLES (inline — edit directly here)
+############################################
+
+variable "apim_name" {
+  default = "YOUR-APIM-NAME"
+}
+
+variable "apim_rg" {
+  default = "YOUR-RESOURCE-GROUP"
+}
+
+variable "mcp_name" {
+  default = "learn-mcp"
+}
+
+variable "mcp_path" {
+  default = "learn-mcp"
+}
+
+variable "entra_tenant_id" {
+  default = "YOUR-TENANT-ID"
+}
+
+variable "client_app_id" {
+  default = "YOUR-CLIENT-APP-ID"
+}
+
+# Optional — can leave empty
+variable "audience" {
+  default = ""
+}
+
+############################################
+# DATA
+############################################
+
+data "azurerm_api_management" "apim" {
+  name                = var.apim_name
+  resource_group_name = var.apim_rg
+}
+
+############################################
+# LOCALS
+############################################
+
+locals {
+  api_name = "${var.mcp_name};rev=1"
+
+  backend_url = "https://learn.microsoft.com/api/mcp"
+
+  policy_xml = <<-XML
+  <policies>
+    <inbound>
+      <base />
+      <validate-azure-ad-token
+        tenant-id="${var.entra_tenant_id}"
+        header-name="Authorization"
+        failed-validation-httpcode="401"
+        failed-validation-error-message="Unauthorized">
+        <client-application-ids>
+          <application-id>${var.client_app_id}</application-id>
+        </client-application-ids>
+        %{ if var.audience != "" ~}
+        <audiences>
+          <audience>${var.audience}</audience>
+        </audiences>
+        %{ endif ~}
+      </validate-azure-ad-token>
+    </inbound>
+
+    <backend>
+      <base />
+    </backend>
+
+    <outbound>
+      <base />
+    </outbound>
+
+    <on-error>
+      <base />
+    </on-error>
+  </policies>
+  XML
+}
+
+############################################
+# MCP API (APIM facade)
+############################################
+
+resource "azapi_resource" "mcp_api" {
+  type      = "Microsoft.ApiManagement/service/apis@2025-03-01-preview"
+  name      = local.api_name
+  parent_id = data.azurerm_api_management.apim.id
+
+  body = {
+    properties = {
+      displayName = "Microsoft Learn MCP"
+      description = "APIM-secured MCP proxy"
+
+      apiType = "http"
+      type    = "http"
+
+      path      = var.mcp_path
+      protocols = ["https"]
+
+      # MCP backend
+      serviceUrl = local.backend_url
+
+      subscriptionRequired = false
+
+      isCurrent = true
+    }
+  }
+}
+
+############################################
+# POLICY (Entra auth)
+############################################
+
+resource "azapi_resource" "mcp_policy" {
+  type      = "Microsoft.ApiManagement/service/apis/policies@2025-03-01-preview"
+  name      = "policy"
+  parent_id = azapi_resource.mcp_api.id
+
+  body = {
+    properties = {
+      format = "rawxml"
+      value  = local.policy_xml
+    }
+  }
+}
+
+############################################
+# OUTPUT
+############################################
+
+output "mcp_endpoint" {
+  value = "https://${replace(data.azurerm_api_management.apim.gateway_url, "https://", "")}/${var.mcp_path}/mcp"
+}
