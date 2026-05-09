@@ -1,3 +1,51 @@
+# Variables
+$PROJECT_ID         = "your-gcp-project-id"
+$BILLING_TYPE       = "SUBSCRIPTION"
+$NETWORK_NAME       = "your-vpc-name"
+$CONTROL_PLANE_LOC  = "eu"
+$CONSUMER_DATA_REG  = "europe-west3"
+$INSTANCE_LOCATION  = "europe-west3"
+$INSTANCE_NAME      = "my-apigee-instance"
+
+$CONTROL_PLANE_KEY  = "projects/$PROJECT_ID/locations/europe/keyRings/cp-keyring/cryptoKeys/cp-key/cryptoKeyVersions/1"
+$CONSUMER_DATA_KEY  = "projects/$PROJECT_ID/locations/europe-west3/keyRings/cd-keyring/cryptoKeys/cd-key/cryptoKeyVersions/1"
+$RUNTIMEDB_KEY      = "projects/$PROJECT_ID/locations/europe-west3/keyRings/db-keyring/cryptoKeys/db-key/cryptoKeyVersions/1"
+$RUNTIMEDISK_KEY    = "projects/$PROJECT_ID/locations/europe-west3/keyRings/disk-keyring/cryptoKeys/disk-key/cryptoKeyVersions/1"
+
+$AUTH = (gcloud auth print-access-token)
+
+# Step 1: Create the Org
+$orgBody = @{
+    name                              = $PROJECT_ID
+    runtimeType                       = "CLOUD"
+    billingType                       = $BILLING_TYPE
+    authorizedNetwork                 = $NETWORK_NAME
+    controlPlaneEncryptionKeyName     = $CONTROL_PLANE_KEY
+    apiConsumerDataLocation           = $CONSUMER_DATA_REG
+    apiConsumerDataEncryptionKeyName  = $CONSUMER_DATA_KEY
+    runtimeDatabaseEncryptionKeyName  = $RUNTIMEDB_KEY
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Uri "https://$CONTROL_PLANE_LOC-apigee.googleapis.com/v1/organizations?parent=projects/$PROJECT_ID" `
+    -Method POST `
+    -Headers @{ Authorization = "Bearer $AUTH"; "Content-Type" = "application/json" } `
+    -Body $orgBody
+
+# Step 2: Create the Instance (run after org creation completes)
+$instanceBody = @{
+    name                  = $INSTANCE_NAME
+    location              = $INSTANCE_LOCATION
+    diskEncryptionKeyName = $RUNTIMEDISK_KEY
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Uri "https://apigee.googleapis.com/v1/organizations/$PROJECT_ID/instances" `
+    -Method POST `
+    -Headers @{ Authorization = "Bearer $AUTH"; "Content-Type" = "application/json" } `
+    -Body $instanceBody
+
+
 Here are the full commands to provision an Apigee **Subscription** org from the CLI.
 
 ---
