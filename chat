@@ -1,0 +1,107 @@
+Here are the full commands to provision an Apigee **Subscription** org from the CLI.
+
+---
+
+## Step 1: Set Environment Variables
+
+```bash
+export PROJECT_ID="your-gcp-project-id"
+export ORG_NAME=$PROJECT_ID
+export NETWORK_NAME="default"                  # your VPC network
+export ANALYTICS_REGION="us-central1"         # or your preferred region
+export RUNTIMEDB_KEY_ID=""                     # CMEK key (optional)
+export BILLING_TYPE="SUBSCRIPTION"
+export AUTH=$(gcloud auth print-access-token)
+```
+
+---
+
+## Step 2: Enable Required APIs
+
+```bash
+gcloud services enable \
+  apigee.googleapis.com \
+  apigeeconnect.googleapis.com \
+  compute.googleapis.com \
+  servicenetworking.googleapis.com \
+  cloudkms.googleapis.com \
+  --project=$PROJECT_ID
+```
+
+---
+
+## Step 3: Create the Apigee Org
+
+### Option A — `curl` (standard, no data residency)
+
+Use this curl command to create the Apigee organization with Subscription billing:
+
+```bash
+curl "https://apigee.googleapis.com/v1/organizations?parent=projects/$PROJECT_ID" \
+  -H "Authorization: Bearer $AUTH" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"'"$PROJECT_ID"'",
+    "analyticsRegion":"'"$ANALYTICS_REGION"'",
+    "runtimeType":"CLOUD",
+    "billingType":"'"$BILLING_TYPE"'",
+    "authorizedNetwork":"'"$NETWORK_NAME"'"
+  }'
+```
+
+### Option B — `curl` (with data residency / CMEK)
+
+For data residency, use the regional control plane endpoint and include encryption key fields:
+
+```bash
+export CONTROL_PLANE_LOCATION="us"            # e.g. us, eu
+export CONSUMER_DATA_REGION="us-central1"
+export CONTROL_PLANE_KEY_ID="projects/.../cryptoKeyVersions/1"
+export CONSUMER_DATA_KEY_ID="projects/.../cryptoKeyVersions/1"
+export RUNTIMEDB_KEY_ID="projects/.../cryptoKeyVersions/1"
+
+curl "https://$CONTROL_PLANE_LOCATION-apigee.googleapis.com/v1/organizations?parent=projects/$PROJECT_ID" \
+  -H "Authorization: Bearer $AUTH" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"'"$PROJECT_ID"'",
+    "runtimeType":"CLOUD",
+    "billingType":"'"$BILLING_TYPE"'",
+    "controlPlaneEncryptionKeyName":"'"$CONTROL_PLANE_KEY_ID"'",
+    "apiConsumerDataLocation":"'"$CONSUMER_DATA_REGION"'",
+    "apiConsumerDataEncryptionKeyName":"'"$CONSUMER_DATA_KEY_ID"'",
+    "authorizedNetwork":"'"$NETWORK_NAME"'",
+    "runtimeDatabaseEncryptionKeyName":"'"$RUNTIMEDB_KEY_ID"'"
+  }'
+```
+
+---
+
+## Step 4: Check Operation Status
+
+The create call returns a long-running operation ID. Poll it to confirm completion:
+
+```bash
+# Get operation ID from the response, then:
+export OPERATION_ID="your-operation-id"
+
+curl -H "Authorization: Bearer $AUTH" \
+  "https://apigee.googleapis.com/v1/organizations/$ORG_NAME/operations/$OPERATION_ID"
+```
+
+Or watch it with gcloud:
+
+```bash
+gcloud apigee organizations describe $ORG_NAME
+```
+
+---
+
+## Notes
+
+- Subscription plans allow pre-paying for entitlements in exchange for significant discounts, and make sense at higher consumption volumes — larger numbers of environments, high API call volumes, or many proxies under management.
+- The `"authorizedNetwork"` field must reference a VPC that has already been peered with service networking before this call.
+- For Shared VPC, use `"projects/HOST_PROJECT_ID/global/networks/NETWORK_NAME"` as the network value.
+- This is a long-running operation — typical provisioning takes **10–20 minutes**.
